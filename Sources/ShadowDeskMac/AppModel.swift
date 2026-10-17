@@ -89,6 +89,7 @@ final class AppModel: ObservableObject {
     private var previousStats: PeerSession.MediaStats?
     private var previousStatsAt = Date()
     private var lastRequestedSize: ServerConfig.VideoSize?
+    private var resolutionTask: Task<Void, Never>?
     private let pasteboard = PasteboardBridge()
     private var clipboardTask: Task<Void, Never>?
     private var lastClipboardText: String?
@@ -123,7 +124,6 @@ final class AppModel: ObservableObject {
         send(.videoFormat(enabled ? "Y444" : "I420"))
         status = enabled ? "正在切换到无损色彩…" : "正在切换到兼容色彩…"
     }
-    private var lastRequestAt = Date.distantPast
     private var retries = 0
 
     init() {
@@ -191,6 +191,8 @@ final class AppModel: ObservableObject {
         statsTask = nil
         clipboardTask?.cancel()
         clipboardTask = nil
+        resolutionTask?.cancel()
+        resolutionTask = nil
         let client = client
         self.client = nil
         Task { await client?.stop() }
@@ -254,6 +256,11 @@ final class AppModel: ObservableObject {
     /// `size` is in points (CSS pixels, like the web client). With
     /// ``nativePixelMode`` the request is scaled by the display's backing
     /// factor so one video pixel covers one physical pixel.
+    ///
+    /// Requests are debounced: while the window is resizing (a drag, or the
+    /// animated layout change when signing in/out) every intermediate size is
+    /// discarded, and only the size that stays put for a moment is sent. That
+    /// keeps the remote from churning through resolutions it never displays.
     func requestResolution(for size: CGSize, backingScale: CGFloat = 1) {
         lastViewportPoints = size
         lastBackingScale = max(1, backingScale)
@@ -271,20 +278,28 @@ final class AppModel: ObservableObject {
         }
 
         let requested = ServerConfig.VideoSize(width: width, height: height)
+        resolutionTask?.cancel()
+        resolutionTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self else { return }
+            self.dispatchResolutionRequest(requested)
+        }
+    }
+
+    private func dispatchResolutionRequest(_ requested: ServerConfig.VideoSize) {
+        guard phase == .connected else { return }
         if let last = lastRequestedSize,
            abs(last.width - requested.width) <= 2,
            abs(last.height - requested.height) <= 2 {
             return
         }
-        guard Date().timeIntervalSince(lastRequestAt) > 0.5 else { return }
         lastRequestedSize = requested
-        lastRequestAt = Date()
         requestedPixelSize = requested
         send(.resolution(width: requested.width, height: requested.height, adaptive: true))
         status = "Asking for \(requested.width)x\(requested.height)"
         if verbose {
             FileHandle.standardError.write(Data(
-                "[resolution] viewport \(Int(size.width))x\(Int(size.height))pt ×\(lastBackingScale) -> \(requested.width)x\(requested.height)\n".utf8
+                "[resolution] viewport \(Int(lastViewportPoints.width))x\(Int(lastViewportPoints.height))pt ×\(lastBackingScale) -> \(requested.width)x\(requested.height)\n".utf8
             ))
         }
     }

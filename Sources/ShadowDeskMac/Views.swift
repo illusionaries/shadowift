@@ -350,11 +350,8 @@ enum WindowGeometry {
     private static let defaultDesktop = CGSize(width: 1280, height: 820)
     private static let desktopSizeKey = "desktopWindowSize"
 
-    static func apply(for phase: AppModel.Phase) {
-        guard let window = NSApp.keyWindow
-            ?? NSApp.mainWindow
-            ?? NSApp.windows.first(where: { $0.canBecomeMain })
-        else { return }
+    static func apply(for phase: AppModel.Phase, window: NSWindow?) {
+        guard let window else { return }
 
         if phase == .connected {
             set(window: window, contentSize: storedDesktopSize())
@@ -393,5 +390,36 @@ enum WindowGeometry {
             frame.origin.y = min(max(frame.origin.y, visible.minY + 16), visible.maxY - frame.height - 16)
         }
         window.setFrame(frame, display: true, animate: true)
+    }
+}
+
+
+// MARK: - Window reader
+
+/// Reports the `NSWindow` hosting this view. Each session needs its own
+/// window reference: with parallel sessions, global lookups like
+/// `NSApp.keyWindow` can return another connection's window.
+struct WindowReader: NSViewRepresentable {
+    var onWindow: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> WindowReaderNSView {
+        let view = WindowReaderNSView()
+        view.onWindow = onWindow
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowReaderNSView, context: Context) {
+        nsView.onWindow = onWindow
+    }
+}
+
+final class WindowReaderNSView: NSView {
+    var onWindow: ((NSWindow) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            onWindow?(window)
+        }
     }
 }

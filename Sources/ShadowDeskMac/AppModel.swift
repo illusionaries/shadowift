@@ -95,6 +95,22 @@ final class AppModel: ObservableObject {
     private var lastClipboardText: String?
     private var lastPasteboardChangeCount = -1
 
+    /// The window hosting this session, captured by `WindowReader`. Window
+    /// geometry changes must go through it — with parallel sessions,
+    /// `NSApp.keyWindow` may belong to another connection.
+    weak var window: NSWindow?
+
+    /// Per-window title: the session target once a sign-in is underway.
+    var windowTitle: String {
+        switch phase {
+        case .connecting, .connected:
+            let host = ServerAddress.normalize(server)?.host() ?? server
+            return "\(user) · \(host)"
+        case .login, .failed:
+            return "ShadowDesk"
+        }
+    }
+
     /// True when the agent is actually producing one pixel per display pixel.
     var nativePixelAchieved: Bool {
         guard nativePixelMode, let requested = requestedPixelSize, let actual = remoteSize else {
@@ -499,14 +515,17 @@ final class AppModel: ObservableObject {
     }
 
     /// `--auto` connects straight away using the last profile and the
-    /// keychain, which is handy for smoke tests and scripted launches.
+    /// keychain, which is handy for smoke tests and scripted launches. Only
+    /// the first window claims it; extra windows would open duplicate
+    /// sessions against the same account.
     func handleLaunchArguments() {
-        guard CommandLine.arguments.contains("--auto") else { return }
+        guard CommandLine.arguments.contains("--auto"), !Self.autoLaunchClaimed else { return }
+        Self.autoLaunchClaimed = true
         signIn()
     }
+    private static var autoLaunchClaimed = false
 
-    /// True when the current server/account pair probably has a keychain
-    /// entry. Only consults the history file, never the keychain itself, so
+    /// True when the current server/account pair probably has a keychain    /// entry. Only consults the history file, never the keychain itself, so
     /// the login form can offer "leave blank to reuse" without triggering a
     /// permission prompt at launch.
     var savedPasswordLikelyAvailable: Bool {

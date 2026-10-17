@@ -74,7 +74,9 @@ struct LoginView: View {
             }
             rowDivider
             row(icon: "lock") {
-                SecureField("", text: $model.password, prompt: Text("密码"))
+                SecureField("", text: $model.password, prompt: Text(
+                    model.savedPasswordLikelyAvailable ? "已存钥匙链，可留空" : "密码"
+                ))
                     .focused($focus, equals: .password)
                     .onSubmit { model.signIn() }
             }
@@ -148,7 +150,6 @@ struct LoginView: View {
                             model.server = entry.server
                             model.user = entry.username
                             model.password = ""
-                            model.loadRememberedPassword()
                             focus = .password
                         }
                     }

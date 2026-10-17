@@ -151,6 +151,15 @@ final class AppModel: ObservableObject {
             phase = .failed("Enter an account")
             return
         }
+        // Only touch the keychain once the user actually asks to sign in:
+        // reading at launch pops a permission dialog with no visible cause.
+        if password.isEmpty {
+            loadRememberedPassword()
+        }
+        guard !password.isEmpty else {
+            phase = .failed("Enter a password")
+            return
+        }
 
         let server = url
         let username = user
@@ -493,8 +502,17 @@ final class AppModel: ObservableObject {
     /// keychain, which is handy for smoke tests and scripted launches.
     func handleLaunchArguments() {
         guard CommandLine.arguments.contains("--auto") else { return }
-        loadRememberedPassword()
         signIn()
+    }
+
+    /// True when the current server/account pair probably has a keychain
+    /// entry. Only consults the history file, never the keychain itself, so
+    /// the login form can offer "leave blank to reuse" without triggering a
+    /// permission prompt at launch.
+    var savedPasswordLikelyAvailable: Bool {
+        history.savePasswords && history.entries.contains {
+            $0.username == user && $0.server == server
+        }
     }
 }
 

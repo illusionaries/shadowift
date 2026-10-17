@@ -70,7 +70,6 @@ struct RootView: View {
         )
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
-            model.loadRememberedPassword()
             model.handleLaunchArguments()
             WindowGeometry.apply(for: model.phase)
         }

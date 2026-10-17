@@ -1,0 +1,35 @@
+== codec probe ==
+
+RTCDefaultVideoEncoderFactory.supportedCodecs():
+  - H264 ["packetization-mode": "1", "level-asymmetry-allowed": "1", "profile-level-id": "640c1f"]
+  - H264 ["profile-level-id": "42e01f", "packetization-mode": "1", "level-asymmetry-allowed": "1"]
+  - VP8 [:]
+  - VP9 ["profile-id": "0"]
+  - VP9 ["profile-id": "2"]
+  - AV1 ["profile": "0", "tier": "0", "level-idx": "5"]
+
+--- offer with the plain initializer (RTCPeerConnectionFactory()) ---
+  a=rtpmap:96 H264/90000
+  a=rtpmap:97 rtx/90000
+  a=rtpmap:98 H264/90000
+  a=rtpmap:99 rtx/90000
+  a=rtpmap:100 red/90000
+  a=rtpmap:101 rtx/90000
+  a=rtpmap:102 ulpfec/90000
+
+--- offer with explicit RTCDefaultVideo{Encoder,Decoder}Factory ---
+  a=rtpmap:96 H264/90000
+  a=rtpmap:97 rtx/90000
+  a=rtpmap:98 H264/90000
+  a=rtpmap:99 rtx/90000
+  a=rtpmap:100 VP8/90000
+  a=rtpmap:101 rtx/90000
+  a=rtpmap:102 VP9/90000
+  a=rtpmap:103 rtx/90000
+  a=rtpmap:104 VP9/90000
+  a=rtpmap:107 rtx/90000
+  a=rtpmap:39 AV1/90000
+  a=rtpmap:40 rtx/90000
+  a=rtpmap:108 red/90000
+  a=rtpmap:109 rtx/90000
+  a=rtpmap:114 ulpfec/90000

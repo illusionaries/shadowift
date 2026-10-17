@@ -1,0 +1,31 @@
+== shadowift / libwebrtc spike ==
+VP8-only offer video line: m=video 9 UDP/TLS/RTP/SAVPF 100 101
+answerer setRemoteDescription error: none
+answerer createAnswer error: none
+answer video line: m=video 9 UDP/TLS/RTP/SAVPF 100 101
+answer rtpmap: a=rtpmap:100 VP8/90000 | a=rtpmap:101 rtx/90000
+answer checks -> m=video: true m=application: true VP8: true recvonly: true sctp-port: true
+answerer setLocalDescription error: none
+offerer setRemoteDescription error: none
+[answerer(client)] pc state: connecting
+[offerer(server)] pc state: connecting
+[answerer(client)] pc state: connected
+[offerer(server)] pc state: connected
+[offerer(server)] dc input state=1 id=1
+[answerer(client)] remote-created data channel: label=input id=1
+[answerer(client)] dc input state=1 id=1
+readyState client=1 server=1
+[offerer(server)] dc input received: mm,100,200
+[client] sent mm,100,200 -> true  [server] sent config -> true
+[answerer(client)] dc input received: {"type":"config","data":{"resolution":"1920x1080"}}
+--- results ---
+client got server 'input' channel: true
+server received client command : true
+client received server config  : true
+answer VP8 + recvonly video    : true
+Metal renderer available       : true
+[offerer(server)] pc state: closed
+[answerer(client)] dc input state=2 id=1
+[answerer(client)] dc input state=3 id=1
+[answerer(client)] pc state: closed
+== spike done ==

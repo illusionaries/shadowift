@@ -28,6 +28,35 @@ struct ControlMessageTests {
         #expect(config.viewerCount == 1)
     }
 
+    @Test("a partial config layers over the previous snapshot")
+    func partialConfigMerge() throws {
+        let full = try #require(ControlMessage.decode(#"""
+        {"type":"config","data":{"userId":"acct","video_format":"Y444",
+         "video_formats":["I420","Y444"],"encoder":"x264enc","resolution":"1718x1078"}}
+        """#))
+        guard case let .serverConfig(base) = full else {
+            Issue.record("expected a server config")
+            return
+        }
+
+        // The manager answers a resize with only the resolution field set.
+        let partial = try #require(ControlMessage.decode(
+            #"{"type":"config","data":{"resolution":"1280x792"}}"#
+        ))
+        guard case let .serverConfig(update) = partial else {
+            Issue.record("expected a server config")
+            return
+        }
+
+        let merged = update.merged(over: base)
+        #expect(merged.resolutionSize == .init(width: 1280, height: 792))
+        #expect(merged.videoFormat == "Y444")
+        #expect(merged.videoFormats == ["I420", "Y444"])
+        #expect(merged.encoder == "x264enc")
+        #expect(merged.userID == "acct")
+        #expect(update.merged(over: nil) == update)
+    }
+
     @Test("cursor payloads decode the base64 image")
     func cursor() throws {
         let png = Data([0x89, 0x50, 0x4E, 0x47])

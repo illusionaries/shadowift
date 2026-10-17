@@ -231,11 +231,12 @@ public actor ShadowDeskClient {
         guard let message = ControlMessage.decode(text) else { return }
         switch message {
         case let .serverConfig(config):
-            serverConfig = config
-            if let size = config.resolutionSize {
-                log("server config: \(size.width)x\(size.height) \(config.videoFormat ?? "") \(config.encoder ?? "")")
+            let merged = config.merged(over: serverConfig)
+            serverConfig = merged
+            if let size = merged.resolutionSize {
+                log("server config: \(size.width)x\(size.height) \(merged.videoFormat ?? "") \(merged.encoder ?? "") formats=\(merged.videoFormats ?? [])")
             }
-            continuation.yield(.serverConfig(config))
+            continuation.yield(.serverConfig(merged))
 
         case let .clipboard(content):
             continuation.yield(.clipboard(content))

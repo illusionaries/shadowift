@@ -38,6 +38,29 @@ public struct ServerConfig: Sendable, Equatable, Decodable {
         resolution.flatMap(VideoSize.init(string:))
     }
 
+    /// Layers a partial update over the last snapshot. The manager broadcasts
+    /// configs that carry only the fields it feels like resending (e.g. just
+    /// `resolution` in reply to a resize request), so fields absent from the
+    /// latest message must keep their previous values instead of resetting.
+    public func merged(over base: ServerConfig?) -> ServerConfig {
+        guard let base else { return self }
+        var result = self
+        if result.userID == nil { result.userID = base.userID }
+        if result.framerate == nil { result.framerate = base.framerate }
+        if result.videoBitrate == nil { result.videoBitrate = base.videoBitrate }
+        if result.dynamicFramerate == nil { result.dynamicFramerate = base.dynamicFramerate }
+        if result.videoFormat == nil { result.videoFormat = base.videoFormat }
+        if result.videoFormats == nil { result.videoFormats = base.videoFormats }
+        if result.encoder == nil { result.encoder = base.encoder }
+        if result.resolution == nil { result.resolution = base.resolution }
+        if result.resolutions == nil { result.resolutions = base.resolutions }
+        if result.adaptiveResolution == nil { result.adaptiveResolution = base.adaptiveResolution }
+        if result.clipboardEnabled == nil { result.clipboardEnabled = base.clipboardEnabled }
+        if result.audioEnabled == nil { result.audioEnabled = base.audioEnabled }
+        if result.viewerCount == nil { result.viewerCount = base.viewerCount }
+        return result
+    }
+
     private enum CodingKeys: String, CodingKey {
         case userID = "userId"
         case framerate

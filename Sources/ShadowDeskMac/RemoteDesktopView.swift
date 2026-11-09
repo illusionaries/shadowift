@@ -245,6 +245,11 @@ final class RemoteDesktopNSView: NSView {
     @objc private func windowDidResignKey() {
         windowIsKey = false
         updateCapture()
+        // Losing key means no key events reach us any more — including the
+        // release of a modifier that is still held. Release ours now, or the
+        // remote keeps acting as if Command were down (every drag becomes a
+        // window move) once focus comes back.
+        releasePressedModifiers()
         setStatusBarHovered(false)
     }
 
@@ -330,6 +335,11 @@ final class RemoteDesktopNSView: NSView {
             && windowIsKey
             && videoRect() != nil
         guard shouldCapture != captured else { return }
+        if shouldCapture {
+            // Focus may have been elsewhere while a modifier was released; let
+            // the remote catch up before it sees the first forwarded event.
+            releaseStaleModifiers()
+        }
         captured = shouldCapture
         if captured {
             NSCursor.hide()
@@ -374,6 +384,44 @@ final class RemoteDesktopNSView: NSView {
         onCommand?(.mouseMove(x: pixel.x, y: pixel.y))
     }
 
+    // MARK: - Modifier reconciliation
+
+    /// A modifier key-up can be lost without our window ever resigning key: a
+    /// system shortcut such as Cmd+Space or Cmd+Shift+4 hands the keyboard to
+    /// another app or to a system panel, which swallows the release. The
+    /// remote then keeps acting as if Command were held — on macOS every drag
+    /// becomes a window move. Releasing the modifiers we forwarded re-aligns
+    /// the two sides. Only releases are injected: the physical state is never
+    /// pressed onto the remote behind the user's back.
+    private func releaseStaleModifiers() {
+        guard !pressedModifiers.isEmpty else { return }
+        let physical = MacKeyMap.currentModifiers()
+        let stale = pressedModifiers.filter {
+            !KeyboardMapping.isModifierDown(keyCode: $0, modifiers: physical)
+        }
+        guard !stale.isEmpty else { return }
+        pressedModifiers.subtract(stale)
+        sendModifierKeyUps(for: stale)
+    }
+
+    /// Releases every forwarded modifier. Used when the window loses key: from
+    /// then on no key event reaches us, so the remote must not be left with any
+    /// of them held.
+    private func releasePressedModifiers() {
+        guard !pressedModifiers.isEmpty else { return }
+        let released = pressedModifiers
+        pressedModifiers.removeAll()
+        sendModifierKeyUps(for: released)
+    }
+
+    private func sendModifierKeyUps(for keyCodes: Set<UInt16>) {
+        for keyCode in keyCodes {
+            if let name = KeyboardMapping.modifierName(keyCode: keyCode) {
+                onCommand?(.keyUp(name))
+            }
+        }
+    }
+
     // MARK: - Mouse
 
     override func mouseEntered(with event: NSEvent) {
@@ -394,6 +442,9 @@ final class RemoteDesktopNSView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         pointer = convert(event.locationInWindow, from: nil)
+        // Movement is the first event after coming back from a system shortcut,
+        // so this settles a swallowed modifier release before any drag starts.
+        releaseStaleModifiers()
         updateCursorView()
         sendAbsolutePointer()
         updateStatusBarHover()
@@ -405,6 +456,7 @@ final class RemoteDesktopNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard captured else { updateCapture(); return }
+        releaseStaleModifiers()
         onCommand?(.mouseDown(.left))
     }
 
@@ -415,6 +467,7 @@ final class RemoteDesktopNSView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         guard captured else { return }
+        releaseStaleModifiers()
         onCommand?(.mouseDown(.right))
     }
 
@@ -425,6 +478,7 @@ final class RemoteDesktopNSView: NSView {
 
     override func otherMouseDown(with event: NSEvent) {
         guard captured else { return }
+        releaseStaleModifiers()
         onCommand?(.mouseDown(.middle))
     }
 
@@ -435,6 +489,7 @@ final class RemoteDesktopNSView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard captured else { return }
+        releaseStaleModifiers()
         if event.hasPreciseScrollingDeltas {
             onCommand?(.trackpadScroll(delta: Int(event.scrollingDeltaY)))
         } else {
@@ -447,6 +502,7 @@ final class RemoteDesktopNSView: NSView {
     override func keyDown(with event: NSEvent) {
         if handleLocalKey(event) { return }
         guard captured, let key = MacKeyMap.browserKey(for: event) else { return }
+        releaseStaleModifiers()
         onCommand?(.keyDown(key))
     }
 
@@ -464,12 +520,19 @@ final class RemoteDesktopNSView: NSView {
     override func flagsChanged(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        guard captured, let name = MacKeyMap.modifierKey(for: event) else { return }
+        guard let name = MacKeyMap.modifierKey(for: event) else { return }
         let isDown = MacKeyMap.isModifierDown(keyCode: event.keyCode, flags: flags)
-        if isDown, !pressedModifiers.contains(event.keyCode) {
+        if isDown {
+            // Presses stop being forwarded as soon as the pointer hands the
+            // remote back; the menu bar keeps working locally.
+            guard captured, !pressedModifiers.contains(event.keyCode) else { return }
             pressedModifiers.insert(event.keyCode)
             onCommand?(.keyDown(name))
-        } else if !isDown, pressedModifiers.contains(event.keyCode) {
+        } else if pressedModifiers.contains(event.keyCode) {
+            // Releases are always forwarded, even when the remote has already
+            // been handed back: we pressed this key on the remote, so it must
+            // hear the key-up. Key events keep coming to this view while the
+            // window stays key, regardless of where the pointer is.
             pressedModifiers.remove(event.keyCode)
             onCommand?(.keyUp(name))
         }

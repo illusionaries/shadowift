@@ -118,7 +118,7 @@ DYLD_FRAMEWORK_PATH=$BIN $BIN/shadowprobe \
 
 其余按键（含 `Esc`、`F1…F12`、`Ctrl+Alt+Del`）原样转发给远端。
 
-## 键盘转发的三个 macOS 细节
+## 键盘转发的四个 macOS 细节
 
 `KeyboardMapping`（Kit，带单测）负责把原生事件映射成浏览器 `KeyboardEvent.key`：
 
@@ -130,7 +130,12 @@ DYLD_FRAMEWORK_PATH=$BIN $BIN/shadowprobe \
   `NSEvent.addLocalMonitorForEvents(matching: .keyUp)` 在分发前截获并转发
   （Chromium / Ghostty / TigerVNC 同款做法），保证远端拿到真实的按下与抬起；
 - **本地命令组合**：`Ctrl+Opt+Shift+键` 直接触发，按 keyCode 匹配（Shift 把 `1` 变成 `!`
-  也能命中）；被本地命令消费的键其 key-up 同样不能再转给远端。
+  也能命中）；被本地命令消费的键其 key-up 同样不能再转给远端；
+- **修饰键必须能"补抬起"**：`⌘Space`、`⌘⇧4` 这类系统快捷键会把键盘交给别的 App 或
+  系统面板，按下的 `Command` 已经转发给远端，抬起却永远不会回到我们这里——远端于是
+  一直以为 `Command` 按着，之后每次拖动鼠标都变成移动窗口。因此：窗口失焦时把已转发的
+  修饰键全部补发 key-up；指针离开画面后释放修饰键也照常转发（窗口仍是 key，事件仍能收到）；
+  每次输入前再用 `CGEventSource.flagsState` 比对真实键盘状态，把被系统吞掉抬起的修饰键补上。
 
 ## 无损色彩模式（Y444）
 

@@ -77,4 +77,28 @@ struct KeyboardMappingTests {
         #expect(!KeyboardMapping.isModifierDown(keyCode: 59, modifiers: .shift))
         #expect(KeyboardMapping.isModifierDown(keyCode: 55, modifiers: .command))
     }
+
+    /// The client releases a modifier on focus loss by replaying its key-up,
+    /// using the key code it recorded when forwarding the press. Every code it
+    /// can record therefore has to keep a name and map back to a flag.
+    @Test("every trackable modifier key code releases cleanly")
+    func modifierKeyCodesRoundTrip() {
+        let expectations: [(UInt16, String, KeyboardMapping.Modifiers)] = [
+            (55, "Meta", .command), (54, "Meta", .command),
+            (56, "Shift", .shift), (60, "Shift", .shift),
+            (59, "Control", .control), (62, "Control", .control),
+            (58, "Alt", .option), (61, "AltGraph", .option),
+            (57, "CapsLock", .capsLock),
+        ]
+        for (keyCode, expectedName, flag) in expectations {
+            #expect(KeyboardMapping.modifierName(keyCode: keyCode) == expectedName)
+            #expect(KeyboardMapping.isModifierDown(keyCode: keyCode, modifiers: flag))
+            #expect(!KeyboardMapping.isModifierDown(keyCode: keyCode, modifiers: []))
+        }
+        // Fn is named but has no flag of its own, so it is never tracked.
+        #expect(KeyboardMapping.modifierName(keyCode: 63) == "Fn")
+        #expect(!KeyboardMapping.isModifierDown(keyCode: 63, modifiers: .function))
+        // Non-modifier codes are ignored by the release path.
+        #expect(KeyboardMapping.modifierName(keyCode: 0) == nil)
+    }
 }

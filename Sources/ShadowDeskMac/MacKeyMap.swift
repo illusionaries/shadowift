@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import ShadowDeskKit
 
 /// Thin AppKit adapter over ``KeyboardMapping``.
@@ -18,6 +19,18 @@ enum MacKeyMap {
 
     static func isModifierDown(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Bool {
         KeyboardMapping.isModifierDown(keyCode: keyCode, modifiers: modifiers(from: flags))
+    }
+
+    /// The modifier state from the combined session event source. Unlike an
+    /// event's own flags these keep reflecting the keyboard while another app
+    /// or a system panel (Spotlight, screenshot crosshair) owns input, which is
+    /// exactly when a key-up can be lost on the way to us.
+    ///
+    /// `NSEvent.ModifierFlags` and `CGEventFlags` share their bit layout, so
+    /// the converted value is meaningful for `modifiers(from:)`.
+    static func currentModifiers() -> KeyboardMapping.Modifiers {
+        let flags = CGEventSource.flagsState(.combinedSessionState)
+        return modifiers(from: NSEvent.ModifierFlags(rawValue: UInt(flags.rawValue)))
     }
 
     private static func modifiers(from flags: NSEvent.ModifierFlags) -> KeyboardMapping.Modifiers {

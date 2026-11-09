@@ -14,9 +14,17 @@ struct RemoteDesktopView: NSViewRepresentable {
     var cursorImage: CGImage?
     var isConnected: Bool
 
+    /// Height of the status bar drawn over the bottom edge, in points. The
+    /// video view owns every pointer event, so the bar's hover state has to be
+    /// derived here (a SwiftUI `onHover` on the bar would never fire: it is
+    /// click-through so the pointer can reach the remote desktop).
+    var statusBarZoneHeight: CGFloat = 0
+
     var onCommand: (ControlCommand) -> Void
     var onLocalCommand: (LocalCommand) -> Void
     var onCaptureChanged: (Bool) -> Void
+    /// Whether the pointer currently sits in the status bar's strip.
+    var onStatusBarHoverChanged: (Bool) -> Void = { _ in }
     /// Viewport in points plus the window's backing scale factor, so the model
     /// can request either CSS pixels (1×) or native device pixels.
     var onViewportChanged: (CGSize, CGFloat) -> Void
@@ -39,7 +47,11 @@ struct RemoteDesktopView: NSViewRepresentable {
         view.onCommand = onCommand
         view.onLocalCommand = onLocalCommand
         view.onCaptureChanged = onCaptureChanged
+        view.onStatusBarHoverChanged = onStatusBarHoverChanged
         view.onViewportChanged = onViewportChanged
+        // Setting the height may finish the pointer's hover state asynchronously,
+        // never inside SwiftUI's update pass.
+        view.statusBarZoneHeight = statusBarZoneHeight
     }
 }
 
@@ -56,6 +68,7 @@ final class RemoteDesktopNSView: NSView {
     private var windowIsKey = false
     private var captured = false
     private var cursorHidden = false
+    private var statusBarHovered = false
     /// Key consumed as a local command; its matching key-up must not leak to
     /// the remote either.
     private var swallowedKeyCode: UInt16?
@@ -65,9 +78,20 @@ final class RemoteDesktopNSView: NSView {
     var videoSize: CGSize?
     var isConnected = false { didSet { updateCapture() } }
 
+    /// Height of the status bar overlay on the bottom edge; the bar fades away
+    /// while the pointer is inside this strip so it never covers the picture
+    /// (it has no controls, so it does not need to stay interactive).
+    var statusBarZoneHeight: CGFloat = 0 {
+        didSet {
+            guard statusBarZoneHeight != oldValue else { return }
+            scheduleStatusBarHoverUpdate()
+        }
+    }
+
     var onCommand: ((ControlCommand) -> Void)?
     var onLocalCommand: ((LocalCommand) -> Void)?
     var onCaptureChanged: ((Bool) -> Void)?
+    var onStatusBarHoverChanged: ((Bool) -> Void)?
     var onViewportChanged: ((CGSize, CGFloat) -> Void)?
 
     override var isFlipped: Bool { true }
@@ -194,6 +218,7 @@ final class RemoteDesktopNSView: NSView {
         reportViewport()
 
         installKeyUpMonitorIfNeeded()
+        scheduleStatusBarHoverUpdate()
         // Selector based observers are removed automatically on dealloc.
         NotificationCenter.default.addObserver(
             self,
@@ -214,11 +239,13 @@ final class RemoteDesktopNSView: NSView {
         window?.makeFirstResponder(self)
         reportViewport()
         updateCapture()
+        scheduleStatusBarHoverUpdate()
     }
 
     @objc private func windowDidResignKey() {
         windowIsKey = false
         updateCapture()
+        setStatusBarHovered(false)
     }
 
     override func updateTrackingAreas() {
@@ -238,6 +265,9 @@ final class RemoteDesktopNSView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         reportViewport()
+        // The strip is anchored to the bottom edge, so a resize can move it
+        // under a stationary pointer.
+        scheduleStatusBarHoverUpdate()
     }
 
     override func viewDidChangeBackingProperties() {
@@ -247,6 +277,48 @@ final class RemoteDesktopNSView: NSView {
 
     private func reportViewport() {
         onViewportChanged?(bounds.size, window?.backingScaleFactor ?? 1)
+    }
+
+    // MARK: - Status bar hover
+
+    /// The status bar is click-through, so it never receives its own hover
+    /// events; the pointer is tracked here instead and the strip above it is
+    /// reported as "hovered" whenever the local or forwarded pointer is inside.
+    private func updateStatusBarHover() {
+        let point: CGPoint
+        let inside: Bool
+        if pointerInside {
+            point = pointer
+            inside = true
+        } else if let window, window.isKeyWindow {
+            // Covers the case where the view appears with the pointer already
+            // parked over the bar: no mouseMoved has been delivered yet.
+            point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            inside = bounds.contains(point)
+        } else {
+            point = .zero
+            inside = false
+        }
+        setStatusBarHovered(inside && statusBarZoneContains(point))
+    }
+
+    private func statusBarZoneContains(_ point: CGPoint) -> Bool {
+        guard statusBarZoneHeight > 0 else { return false }
+        return point.y >= bounds.height - statusBarZoneHeight
+    }
+
+    private func setStatusBarHovered(_ hovered: Bool) {
+        guard hovered != statusBarHovered else { return }
+        statusBarHovered = hovered
+        onStatusBarHoverChanged?(hovered)
+    }
+
+    /// Runs outside SwiftUI's update/layout pass, so reporting the state back
+    /// (it drives a `@State` there) is safe.
+    private func scheduleStatusBarHoverUpdate() {
+        DispatchQueue.main.async { [weak self] in
+            self?.updateStatusBarHover()
+        }
     }
 
     // MARK: - Pointer capture
@@ -309,17 +381,22 @@ final class RemoteDesktopNSView: NSView {
         pointerInside = true
         updateCapture()
         updateCursorView()
+        updateStatusBarHover()
     }
 
     override func mouseExited(with event: NSEvent) {
         pointerInside = false
         updateCapture()
+        // Leaving the picture always brings the readout back, even if the exit
+        // happened through the bottom edge where the strip lives.
+        setStatusBarHovered(false)
     }
 
     override func mouseMoved(with event: NSEvent) {
         pointer = convert(event.locationInWindow, from: nil)
         updateCursorView()
         sendAbsolutePointer()
+        updateStatusBarHover()
     }
 
     override func mouseDragged(with event: NSEvent) {

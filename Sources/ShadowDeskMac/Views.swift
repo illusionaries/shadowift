@@ -207,6 +207,15 @@ struct ConnectingView: View {
 struct DesktopView: View {
     @ObservedObject var model: AppModel
 
+    /// The readout has no controls, so it only ever got in the way: it now
+    /// fades out while the pointer is over it, revealing the bottom of the
+    /// remote screen (and it never swallows a click). Moving the pointer away
+    /// brings it straight back.
+    @State private var statusBarHidden = false
+    /// Measured height of the bar, so the AppKit hover strip matches the
+    /// rendered readout exactly even if its font or padding changes.
+    @State private var statusBarHeight: CGFloat = 0
+
     var body: some View {
         ZStack(alignment: .bottom) {
             RemoteDesktopView(
@@ -215,9 +224,11 @@ struct DesktopView: View {
                 cursor: model.cursor,
                 cursorImage: model.cursorImage,
                 isConnected: model.phase == .connected,
+                statusBarZoneHeight: statusBarHeight,
                 onCommand: { model.send($0) },
                 onLocalCommand: { model.perform($0) },
                 onCaptureChanged: { model.setCaptured($0) },
+                onStatusBarHoverChanged: { statusBarHidden = $0 },
                 onViewportChanged: { size, scale in
                     model.requestResolution(for: size, backingScale: scale)
                 }
@@ -225,6 +236,23 @@ struct DesktopView: View {
             .background(Color.black)
 
             StatusBar(model: model)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: StatusBarHeightKey.self,
+                            value: proxy.size.height
+                        )
+                    }
+                )
+                .onPreferenceChange(StatusBarHeightKey.self) { height in
+                    if height > 0 { statusBarHeight = height }
+                }
+                // Click-through: the remote desktop underneath keeps receiving
+                // pointer events, including in the bar's own strip.
+                .allowsHitTesting(false)
+                .opacity(statusBarHidden ? 0 : 1)
+                .offset(y: statusBarHidden ? statusBarHeight : 0)
+                .animation(.easeOut(duration: 0.16), value: statusBarHidden)
         }
         .overlay(alignment: .topTrailing) {
             if model.showLog {
@@ -236,6 +264,14 @@ struct DesktopView: View {
                 HelpOverlay()
             }
         }
+    }
+}
+
+/// Reports the status bar's rendered height to `DesktopView`.
+private struct StatusBarHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

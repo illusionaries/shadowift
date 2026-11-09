@@ -45,7 +45,9 @@ shadowift/
 - 账号历史（`~/Library/Application Support/shadowdesk/history.json`）
   与 macOS 钥匙串（`shadowdesk:<server>`）记住密码
 
-状态栏实时显示分辨率 / FPS / 码率 / 控制通道 RTT。
+状态栏实时显示分辨率 / FPS / 码率 / 控制通道 RTT。它没有任何按钮，所以不拦截鼠标：
+指针移到状态栏上时它会自动淡出（画面底部不再被遮挡），点击也会直接落到远端画面，
+指针离开后立即恢复。
 
 尚未实现（后续）：自动重连退避、全屏快捷键冲突细化、多显示器、
 音频与文件传输、iOS/iPadOS 前端。
